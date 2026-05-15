@@ -7,6 +7,10 @@ command**.
 
 Closes [HARNESS_AUDIT R7](https://github.com/SMC17/agent-app-control/blob/main/README.md#lineage-harness_audit-closures).
 
+**Performance**: parseExecLine at **1–3.9 M ops/sec** on a 5-year-old
+i7 (sub-microsecond per call on every typical shape). Numbers + honest
+scope + reproduction recipe in [BENCH.md](BENCH.md).
+
 ## What this fixes
 
 The standard Linux desktop launcher pattern (omarchy, krunner, rofi,

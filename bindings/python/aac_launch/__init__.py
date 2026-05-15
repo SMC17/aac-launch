@@ -31,7 +31,7 @@ import shutil
 import subprocess
 from typing import Sequence
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = ["parse", "exec_cmd", "exec_desktop", "BinaryNotFound", "ExecError"]
 
 
