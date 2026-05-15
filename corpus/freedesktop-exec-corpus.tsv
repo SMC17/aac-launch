@@ -1,0 +1,14 @@
+#exec_line	expected_argv_count	expected_arg_0	expected_last_arg	extras	note
+firefox	1	firefox	firefox		simplest
+code --new-window	2	code	--new-window		multi-word
+"vim -u none"	1	vim -u none	vim -u none		whole-line quoted
+code "My Project"	2	code	My Project		quoted-arg
+gvim %f	2	gvim	/tmp/x.txt	/tmp/x.txt	%f single file
+gimp %F	4	gimp	c.png	a.png b.png c.png	%F multi
+browser %u	2	browser	https://x	https://x	%u single url
+echo 100%%	2	echo	100%		%% literal
+app %i %c %k file	2	app	file		deprecated codes stripped
+echo $HOME	2	echo	$HOME		R7: dollar literal
+echo `whoami`	2	echo	`whoami`		R7: backtick literal
+echo $(whoami)	3	echo	$(whoami)`		R7: cmd substitution literal (splits on space if any)
+cat %f	2	cat	; rm -rf /	; rm -rf /	injection-via-extras literal

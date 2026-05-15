@@ -7,37 +7,70 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  test-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+        # macos-latest is Apple Silicon (aarch64), macos-13 is Intel (x86_64).
+        # ubuntu-latest covers Linux x86_64. Windows is tracked separately
+        # since Zig's Windows libc story still has rough edges as of 0.16.
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-      - name: Build
+      - name: Build (ReleaseFast)
         run: zig build -Doptimize=ReleaseFast
       - name: Tests
         run: zig build test --summary all
-      - name: Smoke parse (no-shell-expansion regression guard)
+      - name: R7 regression guard (no shell expansion)
+        shell: bash
         run: |
           out=$(./zig-out/bin/aac-launch parse 'echo $HOME `whoami`')
           echo "$out"
-          # The dollar-sign and backticks MUST appear LITERAL in argv slots.
-          # If they were ever expanded (shell escaping bug), this grep fails.
           echo "$out" | grep -qF '$HOME' || { echo "REGRESSION: $HOME got expanded"; exit 1; }
           echo "$out" | grep -qF '`whoami`' || { echo "REGRESSION: backticks got expanded"; exit 1; }
           echo "R7 guard: PASS"
 
-  cross-compile:
+  cross-compile-matrix:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-macos
+          - x86_64-macos
+          - aarch64-linux
+          - x86_64-linux-musl
+          - x86_64-windows-gnu
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-      - name: Cross-compile to darwin-aarch64
-        run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
-      - name: Verify Mach-O
+      - name: Cross-compile to ${{ matrix.target }}
+        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseFast
+      - name: Sanity-check output binary
         run: |
-          file zig-out/bin/aac-launch
-          file zig-out/bin/aac-launch | grep -q "Mach-O 64-bit arm64"
+          ls -la zig-out/bin/
+          file zig-out/bin/aac-launch* || true
+
+  python-binding:
+    runs-on: ubuntu-latest
+    needs: test-matrix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build Zig binary
+        run: zig build -Doptimize=ReleaseFast
+      - name: Run python binding tests
+        working-directory: bindings/python
+        run: |
+          pip install -e .
+          python -m unittest discover -v

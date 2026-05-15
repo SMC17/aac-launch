@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aac_launch"
+version = "0.3.0"
+description = "Python binding for aac-launch — argv-safe .desktop Exec launcher (closes HARNESS_AUDIT R7)"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.10"
+authors = [{ name = "Sean Collins" }]
+keywords = ["desktop-entry", "launcher", "security", "linux", "zig"]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+    "Topic :: System :: Operating System",
+]
+
+[project.urls]
+Homepage = "https://github.com/SMC17/aac-launch"
+Repository = "https://github.com/SMC17/aac-launch"
+Issues = "https://github.com/SMC17/aac-launch/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aac_launch"]
