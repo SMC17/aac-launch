@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast
+      - name: Tests
+        run: zig build test --summary all
+      - name: Smoke parse (no-shell-expansion regression guard)
+        run: |
+          out=$(./zig-out/bin/aac-launch parse 'echo $HOME `whoami`')
+          echo "$out"
+          # The dollar-sign and backticks MUST appear LITERAL in argv slots.
+          # If they were ever expanded (shell escaping bug), this grep fails.
+          echo "$out" | grep -qF '$HOME' || { echo "REGRESSION: $HOME got expanded"; exit 1; }
+          echo "$out" | grep -qF '`whoami`' || { echo "REGRESSION: backticks got expanded"; exit 1; }
+          echo "R7 guard: PASS"
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Cross-compile to darwin-aarch64
+        run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
+      - name: Verify Mach-O
+        run: |
+          file zig-out/bin/aac-launch
+          file zig-out/bin/aac-launch | grep -q "Mach-O 64-bit arm64"
